@@ -4,6 +4,7 @@ import warnings
 import csv
 from datetime import datetime
 import json
+import tqdm
 
 # Suppress SSL warnings for small biz sites with expired certificates
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
@@ -123,9 +124,11 @@ def rate(url,email, name):
     return data
 
 if __name__ == "__main__":
-    sbsData = loadSBS("sbs.csv")
+    sbsData = loadSBS("sample.csv")
     data = []
+    pbar = tqdm(total=len(sbsData))
     for row in sbsData:
         data.append(rate(row['url'],row['email'],row['name']))
+        pbar.update(1)
     with open("results.json", "w") as f:
         json.dump(data, f, indent=4)
