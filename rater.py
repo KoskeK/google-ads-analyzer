@@ -36,7 +36,7 @@ with open("google_key", "r") as f:
     GOOGLE_API_KEY = f.read().strip()
 
 def fetch_lighthouse_report(url, strategy="mobile", key=GOOGLE_API_KEY):
-    endpoint = "https://www.blacklane.com/en/"
+    endpoint = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
     params = {
         "url": url,
         "key": key,
@@ -89,29 +89,35 @@ def loadSBS(file_path):
     return data
 
 def rateAndSave(url, collection,email,name):
-    data = {"url": url, "timestamp": datetime.today(),"email": email,"name": name}
+    data = {"url": url, "timestamp": datetime.today().isoformat(),"email": email,"name": name}
     if detect_pixel(url):
         data['has_ads'] = True
+    else:
+        data['has_ads'] = False
     lighthouse_data, scores = fetch_lighthouse_report(url)
 
-    for score in scores:
-        if score > config[f'max_{score}']:
-            for score in scores:
-                data[score] = scores[score]
-            data["raw_data"] = lighthouse_data
+    if scores is not None:
+        for score_name in scores:
+            if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                for s in scores:
+                    data[s] = scores[s]
+                data["raw_data"] = lighthouse_data
+                break
 
     collection.insert_one(data)
 
 def rate(url,email, name):
-    data = {"url": url, "timestamp": datetime.today(),"email": email,"name": name}
+    data = {"url": url, "timestamp": datetime.today().isoformat(),"email": email,"name": name}
     if detect_pixel(url):
         data['has_ads'] = True
         lighthouse_data, scores = fetch_lighthouse_report(url)
-        for score in scores:
-            if score > config[f'max_{score}']:
-                for score in scores:
-                    data[score] = scores[score]
-                data["raw_data"] = lighthouse_data
+        if scores is not None:
+            for score_name in scores:
+                if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                    for s in scores:
+                        data[s] = scores[s]
+                    data["raw_data"] = lighthouse_data
+                    break
     else:
         data['has_ads'] = False
     return data
