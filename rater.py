@@ -3,9 +3,9 @@ import httpx
 import warnings
 import csv
 import tqdm
+import concurrent.futures
 from datetime import datetime
 import json
-import tqdm
 
 # Suppress SSL warnings for small biz sites with expired certificates
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
@@ -92,13 +92,16 @@ def loadSBS(file_path):
         })
     return data
 
-def rateAndSave(url, collection,email,name):
-    data = {"url": url, "timestamp": datetime.today().isoformat(),"email": email,"name": name}
-    if detect_pixel(url):
-        data['has_ads'] = True
-    else:
-        data['has_ads'] = False
-    lighthouse_data, scores = fetch_lighthouse_report(url)
+def rateAndSave(url, collection, email, name):
+    data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        pixel_future = executor.submit(detect_pixel, url)
+        lighthouse_future = executor.submit(fetch_lighthouse_report, url)
+        has_ads = pixel_future.result()
+        lighthouse_data, scores = lighthouse_future.result()
+
+    data['has_ads'] = has_ads
 
     if scores is not None:
         for score_name in scores:
@@ -110,20 +113,25 @@ def rateAndSave(url, collection,email,name):
 
     collection.insert_one(data)
 
-def rate(url,email, name):
-    data = {"url": url, "timestamp": datetime.today().isoformat(),"email": email,"name": name}
-    if detect_pixel(url):
-        data['has_ads'] = True
-        lighthouse_data, scores = fetch_lighthouse_report(url)
-        if scores is not None:
-            for score_name in scores:
-                if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
-                    for s in scores:
-                        data[s] = scores[s]
-                    data["raw_data"] = lighthouse_data
-                    break
-    else:
-        data['has_ads'] = False
+def rate(url, email, name):
+    data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        pixel_future = executor.submit(detect_pixel, url)
+        lighthouse_future = executor.submit(fetch_lighthouse_report, url)
+        has_ads = pixel_future.result()
+        lighthouse_data, scores = lighthouse_future.result()
+
+    data['has_ads'] = has_ads
+
+    if has_ads and scores is not None:
+        for score_name in scores:
+            if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                for s in scores:
+                    data[s] = scores[s]
+                data["raw_data"] = lighthouse_data
+                break
+
     return data
 
 if __name__ == "__main__":
