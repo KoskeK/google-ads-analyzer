@@ -3,7 +3,6 @@ import httpx
 import warnings
 import csv
 import tqdm
-import concurrent.futures
 from datetime import datetime
 import json
 
@@ -94,43 +93,35 @@ def loadSBS(file_path):
 
 def rateAndSave(url, collection, email, name):
     data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        pixel_future = executor.submit(detect_pixel, url)
-        lighthouse_future = executor.submit(fetch_lighthouse_report, url)
-        has_ads = pixel_future.result()
-        lighthouse_data, scores = lighthouse_future.result()
-
+    has_ads = detect_pixel(url)
     data['has_ads'] = has_ads
 
-    if scores is not None:
-        for score_name in scores:
-            if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
-                for s in scores:
-                    data[s] = scores[s]
-                data["raw_data"] = lighthouse_data
-                break
+    if has_ads:
+        lighthouse_data, scores = fetch_lighthouse_report(url)
+        if scores is not None:
+            for score_name in scores:
+                if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                    for s in scores:
+                        data[s] = scores[s]
+                    data["raw_data"] = lighthouse_data
+                    break
 
     collection.insert_one(data)
 
 def rate(url, email, name):
     data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        pixel_future = executor.submit(detect_pixel, url)
-        lighthouse_future = executor.submit(fetch_lighthouse_report, url)
-        has_ads = pixel_future.result()
-        lighthouse_data, scores = lighthouse_future.result()
-
+    has_ads = detect_pixel(url)
     data['has_ads'] = has_ads
 
-    if has_ads and scores is not None:
-        for score_name in scores:
-            if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
-                for s in scores:
-                    data[s] = scores[s]
-                data["raw_data"] = lighthouse_data
-                break
+    if has_ads:
+        lighthouse_data, scores = fetch_lighthouse_report(url)
+        if scores is not None:
+            for score_name in scores:
+                if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                    for s in scores:
+                        data[s] = scores[s]
+                    data["raw_data"] = lighthouse_data
+                    break
 
     return data
 
