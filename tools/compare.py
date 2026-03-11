@@ -9,4 +9,4 @@ with open("good_data.json", "r") as f:
 print(f"Original data has {len(original_data)} entries.")
 print(f"New data has {len(new_data)} entries.")
 print(f"The difference is {len(original_data) - len(new_data)} entries.")
-print(f"That is a {((len(original_data) - len(new_data)) / len(original_data)) * 100:.2f}% change.")
+print(f"That is a {((len(original_data) - len(new_data)) / len(new_data)) * 100:.2f}% change.")
