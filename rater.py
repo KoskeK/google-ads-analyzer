@@ -126,7 +126,7 @@ def rate(url,email, name):
 if __name__ == "__main__":
     sbsData = loadSBS("sample.csv")
     data = []
-    pbar = tqdm(total=len(sbsData))
+    pbar = tqdm.tqdm(total=len(sbsData))
     for row in sbsData:
         data.append(rate(row['url'],row['email'],row['name']))
         pbar.update(1)
