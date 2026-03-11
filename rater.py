@@ -3,6 +3,7 @@ import httpx
 import warnings
 import csv
 import tqdm
+import concurrent.futures
 from datetime import datetime
 import json
 
@@ -108,32 +109,57 @@ def rateAndSave(url, collection, email, name):
 
     collection.insert_one(data)
 
+def _lighthouse_task(base_data, url):
+    """Runs in a worker thread: fetches lighthouse and merges scores into base_data."""
+    lighthouse_data, scores = fetch_lighthouse_report(url)
+    if scores is not None:
+        for score_name in scores:
+            if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                for s in scores:
+                    base_data[s] = scores[s]
+                base_data["raw_data"] = lighthouse_data
+                break
+    return base_data
+
 def rate(url, email, name):
     data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
     has_ads = detect_pixel(url)
     data['has_ads'] = has_ads
-
-    if has_ads:
-        lighthouse_data, scores = fetch_lighthouse_report(url)
-        if scores is not None:
-            for score_name in scores:
-                if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
-                    for s in scores:
-                        data[s] = scores[s]
-                    data["raw_data"] = lighthouse_data
-                    break
-
     return data
 
 if __name__ == "__main__":
     sbsData = loadSBS("sample.csv")
-    data = []
+    results = []
     pbar = tqdm.tqdm(total=len(sbsData))
-    for row in sbsData:
-        try:
-            data.append(rate(row['url'], row['email'], row['name']))
-        except Exception as e:
-            print(f"\nFailed to process {row['url']}: {e}")
-        pbar.update(1)
+
+    # Pool for lighthouse scans — runs concurrently while main thread keeps scanning for ads
+    with concurrent.futures.ThreadPoolExecutor() as lighthouse_pool:
+        pending_futures = {}
+
+        for row in sbsData:
+            try:
+                data = rate(row['url'], row['email'], row['name'])
+                if data['has_ads']:
+                    # Hand off to a worker thread immediately and keep going
+                    future = lighthouse_pool.submit(_lighthouse_task, data, row['url'])
+                    pending_futures[future] = data
+                else:
+                    results.append(data)
+            except Exception as e:
+                print(f"\nFailed to process {row['url']}: {e}")
+            pbar.update(1)
+
+        pbar.close()
+
+        # Collect lighthouse results as they finish
+        print(f"\nWaiting for {len(pending_futures)} lighthouse scans to complete...")
+        for future in concurrent.futures.as_completed(pending_futures):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                original_data = pending_futures[future]
+                print(f"\nLighthouse failed for {original_data['url']}: {e}")
+                results.append(original_data)
+
     with open("results.json", "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump(results, f, indent=4)
