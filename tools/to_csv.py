@@ -21,3 +21,5 @@ with open("good_data.csv", "w", newline='', encoding='utf-8') as csvfile:
             "seo": entry.get("seo"),
             "lcp": entry.get("lcp")
         })
+    csvfile.flush()
+    csvfile.close()
