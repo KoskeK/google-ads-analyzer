@@ -1,0 +1,7 @@
+{
+    "max_performance":75,
+    "max_accessibility":80,
+    "max_best-practices":100,
+    "max_seo":100,
+    "mongo_url":""
+}
