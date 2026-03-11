@@ -2,6 +2,7 @@ import time
 import httpx
 import warnings
 import csv
+import tqdm
 from datetime import datetime
 import json
 import tqdm
@@ -60,9 +61,11 @@ def fetch_lighthouse_report(url, strategy="mobile", key=GOOGLE_API_KEY):
             data = response.json()
             
             categories = data['lighthouseResult']['categories']
-            scores = {name: cat['score'] * 100 for name, cat in categories.items()}
-            lcp = data['lighthouseResult']['audits']['largest-contentful-paint']['numericValue'] / 1000
-            scores['lcp'] = lcp
+            scores = {name: cat['score'] * 100 for name, cat in categories.items() if cat.get('score') is not None}
+            lcp_audit = data['lighthouseResult']['audits'].get('largest-contentful-paint', {})
+            lcp_value = lcp_audit.get('numericValue')
+            if lcp_value is not None:
+                scores['lcp'] = lcp_value / 1000
             
             return data, scores
 
@@ -128,7 +131,10 @@ if __name__ == "__main__":
     data = []
     pbar = tqdm.tqdm(total=len(sbsData))
     for row in sbsData:
-        data.append(rate(row['url'],row['email'],row['name']))
+        try:
+            data.append(rate(row['url'], row['email'], row['name']))
+        except Exception as e:
+            print(f"\nFailed to process {row['url']}: {e}")
         pbar.update(1)
     with open("results.json", "w") as f:
         json.dump(data, f, indent=4)
