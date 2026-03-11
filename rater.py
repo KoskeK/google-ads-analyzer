@@ -4,6 +4,7 @@ import warnings
 import csv
 import tqdm
 import concurrent.futures
+import logging
 from datetime import datetime
 import json
 
@@ -12,6 +13,17 @@ warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 with open('config.json', 'r') as f:
     config = json.load(f)
+
+logging.basicConfig(
+    filename=config.get('log_file', 'errors.log'),
+    level=logging.ERROR,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+
+def log_error(msg):
+    logging.error(msg)
+    print(f"\nERROR: {msg}")
 
 def detect_pixel(url):
     headers = {
@@ -32,6 +44,7 @@ def detect_pixel(url):
                 return False
 
     except Exception:
+        log_error(f"detect_pixel failed for {url}")
         return False
 
 with open("google_key", "r") as f:
@@ -53,7 +66,7 @@ def fetch_lighthouse_report(url, strategy="mobile", key=GOOGLE_API_KEY):
             response = httpx.get(endpoint, params=params, timeout=60)
             
             if response.status_code in [429, 500, 503]:
-                print(f"API rate limit hit (Status {response.status_code}). Retrying in 10s...")
+                log_error(f"Lighthouse API rate limit/server error (HTTP {response.status_code}) for {url}, attempt {attempt + 1}")
                 time.sleep(10)
                 continue
             
@@ -66,11 +79,12 @@ def fetch_lighthouse_report(url, strategy="mobile", key=GOOGLE_API_KEY):
             lcp_value = lcp_audit.get('numericValue')
             if lcp_value is not None:
                 scores['lcp'] = lcp_value / 1000
-            
+
+            time.sleep(config.get('lighthouse_delay', 2))
             return data, scores
 
         except (httpx.RequestError, httpx.HTTPStatusError) as e:
-            print(f"Request error: {e}")
+            log_error(f"Lighthouse request error for {url} (attempt {attempt + 1}): {e}")
             if attempt < max_retries - 1:
                 time.sleep(5)
             else:
@@ -146,7 +160,7 @@ if __name__ == "__main__":
                 else:
                     results.append(data)
             except Exception as e:
-                print(f"\nFailed to process {row['url']}: {e}")
+                log_error(f"Failed to process {row['url']}: {e}")
             pbar.update(1)
 
         pbar.close()
@@ -158,7 +172,7 @@ if __name__ == "__main__":
                 results.append(future.result())
             except Exception as e:
                 original_data = pending_futures[future]
-                print(f"\nLighthouse failed for {original_data['url']}: {e}")
+                log_error(f"Lighthouse task failed for {original_data['url']}: {e}")
                 results.append(original_data)
 
     with open("results.json", "w") as f:

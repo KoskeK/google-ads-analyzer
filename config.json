@@ -4,5 +4,7 @@
     "max_best-practices":100,
     "max_seo":100,
     "max_lcp":2.5,
+    "lighthouse_delay": 0.1,
+    "log_file": "errors.log",
     "mongo_url":""
 }
