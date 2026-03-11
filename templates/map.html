@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-4 p-md-5">
+  <h2 class="mb-1 fw-bold">Map Columns</h2>
+  <p class="text-muted mb-4">
+    Tell us which columns in your CSV correspond to each field. Only the URL column is required.
+  </p>
+
+  {% if error %}
+  <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+
+  <form method="POST" action="/scan/{{ upload_id }}">
+
+    <!-- URL (required) -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">
+        Website URL <span class="text-danger">*</span>
+      </label>
+      <select class="form-select" name="url_col" required>
+        <option value="">— Select column —</option>
+        {% for h in headers %}
+        <option value="{{ h }}" {% if h == guesses.url %}selected{% endif %}>{{ h }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- URL fallback (optional) -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">
+        URL Fallback Column
+        <span class="text-muted fw-normal">(optional)</span>
+      </label>
+      <select class="form-select" name="url_fallback_col">
+        <option value="">— None —</option>
+        {% for h in headers %}
+        <option value="{{ h }}" {% if h == guesses.url_fallback %}selected{% endif %}>{{ h }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text">Used when the primary URL cell is empty.</div>
+    </div>
+
+    <hr class="my-4" />
+
+    <!-- Name (optional) -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">
+        Contact Name
+        <span class="text-muted fw-normal">(optional)</span>
+      </label>
+      <select class="form-select" name="name_col">
+        <option value="">— None —</option>
+        {% for h in headers %}
+        <option value="{{ h }}" {% if h == guesses.name %}selected{% endif %}>{{ h }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Email (optional) -->
+    <div class="mb-4">
+      <label class="form-label fw-semibold">
+        Contact Email
+        <span class="text-muted fw-normal">(optional)</span>
+      </label>
+      <select class="form-select" name="email_col">
+        <option value="">— None —</option>
+        {% for h in headers %}
+        <option value="{{ h }}" {% if h == guesses.email %}selected{% endif %}>{{ h }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-success btn-lg w-100">
+      Start Scan →
+    </button>
+  </form>
+</div>
+{% endblock %}

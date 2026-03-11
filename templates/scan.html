@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-4 p-md-5">
+  <h2 class="mb-1 fw-bold" id="page-title">Scanning</h2>
+  <p class="text-muted mb-4" id="status-text">Starting scan…</p>
+
+  <!-- Phase 1: Ad pixel scan -->
+  <div id="phase-pixel">
+    <div class="d-flex justify-content-between mb-1">
+      <small class="fw-semibold text-secondary">Ad pixel check</small>
+      <small id="pixel-count" class="text-secondary">0 / 0</small>
+    </div>
+    <div class="progress mb-4" style="height: 20px;">
+      <div id="pixel-bar"
+           class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+           role="progressbar" style="width: 0%;">0%</div>
+    </div>
+  </div>
+
+  <!-- Phase 2: Lighthouse (hidden until needed) -->
+  <div id="phase-lighthouse" class="d-none">
+    <div class="d-flex justify-content-between mb-1">
+      <small class="fw-semibold text-secondary">Lighthouse scan</small>
+      <small id="lh-count" class="text-secondary">0 / 0</small>
+    </div>
+    <div class="progress mb-4" style="height: 20px;">
+      <div id="lh-bar"
+           class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+           role="progressbar" style="width: 0%;">0%</div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div id="done-section" class="d-none">
+    <div class="alert alert-success fw-semibold mb-3">
+      ✓ Scan complete!
+    </div>
+    <a id="download-btn" href="/download/{{ job_id }}" class="btn btn-primary btn-lg w-100">
+      Download results.json
+    </a>
+    <a href="/" class="btn btn-outline-secondary btn-lg w-100 mt-2">Scan another file</a>
+  </div>
+
+  <!-- Error -->
+  <div id="error-section" class="d-none">
+    <div class="alert alert-danger">
+      <strong>Error:</strong> <span id="error-msg"></span>
+    </div>
+    <a href="/" class="btn btn-secondary w-100">Start over</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const JOB_ID = "{{ job_id }}";
+
+  function setBar(barEl, countEl, done, total) {
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    barEl.style.width = pct + "%";
+    barEl.textContent = pct + "%";
+    countEl.textContent = done + " / " + total;
+  }
+
+  function poll() {
+    fetch("/api/progress/" + JOB_ID)
+      .then(r => r.json())
+      .then(d => {
+        const pixelBar   = document.getElementById("pixel-bar");
+        const pixelCount = document.getElementById("pixel-count");
+        const lhSection  = document.getElementById("phase-lighthouse");
+        const lhBar      = document.getElementById("lh-bar");
+        const lhCount    = document.getElementById("lh-count");
+
+        if (d.status === "scanning" || d.status === "starting") {
+          document.getElementById("status-text").textContent =
+            "Checking ad pixels… (" + d.progress + " of " + d.total + ")";
+          setBar(pixelBar, pixelCount, d.progress, d.total);
+          setTimeout(poll, 1200);
+
+        } else if (d.status === "lighthouse") {
+          // Pixel phase visually complete
+          setBar(pixelBar, pixelCount, d.total, d.total);
+          pixelBar.classList.remove("progress-bar-animated");
+
+          // Show lighthouse phase
+          lhSection.classList.remove("d-none");
+          setBar(lhBar, lhCount, d.lh_done, d.lh_total);
+          document.getElementById("status-text").textContent =
+            "Running Lighthouse scans… (" + d.lh_done + " of " + d.lh_total + ")";
+          setTimeout(poll, 2000);
+
+        } else if (d.status === "done") {
+          document.getElementById("page-title").textContent = "Scan complete";
+          document.getElementById("status-text").textContent =
+            "All " + d.total + " URLs processed.";
+
+          setBar(pixelBar, pixelCount, d.total, d.total);
+          pixelBar.classList.remove("progress-bar-animated");
+
+          if (d.lh_total > 0) {
+            lhSection.classList.remove("d-none");
+            setBar(lhBar, lhCount, d.lh_total, d.lh_total);
+            lhBar.classList.remove("progress-bar-animated");
+          }
+
+          document.getElementById("done-section").classList.remove("d-none");
+
+        } else if (d.status === "error") {
+          document.getElementById("error-msg").textContent = d.error || "Unknown error";
+          document.getElementById("error-section").classList.remove("d-none");
+
+        } else {
+          setTimeout(poll, 1500);
+        }
+      })
+      .catch(() => setTimeout(poll, 3000));
+  }
+
+  poll();
+</script>
+{% endblock %}
