@@ -201,6 +201,111 @@ Click the gear icon (⚙ Settings) in the top-right of any page to open the sett
 
 ---
 
+## Deploying with Gunicorn + systemd
+
+For running the app as a persistent background service on Linux.
+
+### 1. Install Gunicorn
+
+```bash
+source .venv/bin/activate
+pip install gunicorn
+```
+
+### 2. Test Gunicorn manually
+
+From the project root (with the venv active), verify it starts correctly before creating the service:
+
+```bash
+gunicorn --workers 1 --bind 127.0.0.1:5000 web:app
+```
+
+> **Keep workers at 1.** The scan jobs are stored in an in-memory dict — multiple workers would not share that state, so progress polling and downloads would break.
+
+### 3. Create the systemd service file
+
+Create `/etc/systemd/system/ads-analyzer.service` (adjust paths and user as needed):
+
+```ini
+[Unit]
+Description=Google Ads Analyzer
+After=network.target
+
+[Service]
+User=<your-linux-username>
+Group=<your-linux-username>
+WorkingDirectory=/home/<your-linux-username>/Desktop/Programming/google-ads-analyzer
+Environment="PATH=/home/<your-linux-username>/Desktop/Programming/google-ads-analyzer/.venv/bin"
+ExecStart=/home/<your-linux-username>/Desktop/Programming/google-ads-analyzer/.venv/bin/gunicorn \
+    --workers 1 \
+    --bind 127.0.0.1:5000 \
+    --timeout 300 \
+    --access-logfile /var/log/ads-analyzer-access.log \
+    --error-logfile /var/log/ads-analyzer-error.log \
+    web:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Key options explained:
+
+| Option | Why |
+|---|---|
+| `--workers 1` | Required — see note above |
+| `--timeout 300` | Scan requests can take several minutes; prevents Gunicorn from killing worker mid-scan |
+| `--bind 127.0.0.1:5000` | Listens only on localhost; put Nginx/Caddy in front for public access |
+
+### 4. Enable and start the service
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable ads-analyzer   # start on boot
+sudo systemctl start ads-analyzer
+sudo systemctl status ads-analyzer   # verify it's running
+```
+
+### 5. View logs
+
+```bash
+# Gunicorn access + error logs
+sudo tail -f /var/log/ads-analyzer-access.log
+sudo tail -f /var/log/ads-analyzer-error.log
+
+# systemd journal (includes stdout — watchdog/scan prints)
+sudo journalctl -u ads-analyzer -f
+```
+
+### 6. (Optional) Nginx reverse proxy
+
+To expose the app on port 80/443, create `/etc/nginx/sites-available/ads-analyzer`:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/ads-analyzer /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+---
+
 ## Project Structure
 
 ```
