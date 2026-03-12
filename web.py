@@ -5,6 +5,7 @@ import json
 import threading
 import concurrent.futures
 import io
+import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file, session
 from functools import wraps
 
@@ -41,10 +42,43 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB upload limit
 UPLOAD_DIR = "/tmp/ads_analyzer_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+RESULTS_DIR = os.path.join(_base_path, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
 # In-memory stores (single-server / dev use)
 uploads = {}  # upload_id -> {path, headers}
-jobs = {}     # job_id -> {status, progress, total, lh_done, lh_total, results, error}
+jobs = {}     # job_id -> {status, progress, total, lh_done, lh_total, results, error, csv_file}
 jobs_lock = threading.Lock()
+
+_CORE_FIELDS = ["url", "timestamp", "email", "name", "has_ads", "detected_tags",
+                "performance", "accessibility", "best-practices", "seo", "lcp"]
+
+
+def save_results_csv(job_id: str, results: list) -> str:
+    """Write results to RESULTS_DIR/<timestamp>_<job_id_short>.csv and return the filename."""
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"scan_{ts}_{job_id[:8]}.csv"
+    path = os.path.join(RESULTS_DIR, filename)
+
+    # Build fieldnames: core fields first, then any extra keys from the data
+    extra_keys = []
+    for row in results:
+        for k in row:
+            if k not in _CORE_FIELDS and k not in extra_keys:
+                extra_keys.append(k)
+    fieldnames = _CORE_FIELDS + extra_keys
+
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for row in results:
+            flat = {**row}
+            if isinstance(flat.get("detected_tags"), list):
+                flat["detected_tags"] = ", ".join(flat["detected_tags"])
+            writer.writerow(flat)
+
+    print(f"[scan] saved CSV → {path}")
+    return filename
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -191,8 +225,15 @@ def run_scan(job_id: str, rows: list, skip_existing: bool = False):
                 with jobs_lock:
                     job["lh_done"] += 1
 
+        csv_filename = None
+        try:
+            csv_filename = save_results_csv(job_id, results)
+        except Exception as csv_err:
+            print(f"[scan] CSV save failed: {csv_err}")
+
         with jobs_lock:
             job["results"] = results
+            job["csv_file"] = csv_filename
             job["status"] = "done"
         print(f"[scan] finished — {len(results)} results")
 
@@ -344,6 +385,7 @@ def start_scan(upload_id):
             "lh_total": 0,
             "results": None,
             "error": None,
+            "csv_file": None,
         }
 
     t = threading.Thread(target=run_scan, args=(job_id, rows, skip_existing), daemon=True)
@@ -372,6 +414,7 @@ def api_progress(job_id):
         "lh_done": job["lh_done"],
         "lh_total": job["lh_total"],
         "error": job["error"],
+        "csv_file": job.get("csv_file"),
     })
 
 
@@ -385,6 +428,47 @@ def download(job_id):
     buf = io.BytesIO(json.dumps(job["results"], indent=2).encode("utf-8"))
     buf.seek(0)
     return send_file(buf, mimetype="application/json", as_attachment=True, download_name="results.json")
+
+
+@app.route("/download_result/<path:filename>")
+@login_required
+def download_result(filename):
+    # Prevent path traversal
+    safe = os.path.basename(filename)
+    path = os.path.join(RESULTS_DIR, safe)
+    if not os.path.isfile(path):
+        return redirect(url_for("results_list"))
+    return send_file(path, mimetype="text/csv", as_attachment=True, download_name=safe)
+
+
+@app.route("/download_csv/<job_id>")
+@login_required
+def download_csv(job_id):
+    job = jobs.get(job_id)
+    if not job or not job.get("csv_file"):
+        return redirect(url_for("index"))
+    path = os.path.join(RESULTS_DIR, job["csv_file"])
+    if not os.path.isfile(path):
+        return redirect(url_for("index"))
+    return send_file(path, mimetype="text/csv", as_attachment=True,
+                     download_name=job["csv_file"])
+
+
+@app.route("/results")
+@login_required
+def results_list():
+    files = []
+    try:
+        for fname in sorted(os.listdir(RESULTS_DIR), reverse=True):
+            if fname.endswith(".csv"):
+                full = os.path.join(RESULTS_DIR, fname)
+                size_kb = os.path.getsize(full) / 1024
+                mtime = datetime.datetime.fromtimestamp(os.path.getmtime(full))
+                files.append({"name": fname, "size_kb": round(size_kb, 1),
+                               "modified": mtime.strftime("%Y-%m-%d %H:%M:%S")})
+    except Exception as e:
+        pass
+    return render_template("results.html", files=files)
 
 
 @app.route("/config", methods=["GET", "POST"])

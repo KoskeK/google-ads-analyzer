@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-4 p-md-5">
+  <h2 class="fw-bold mb-1">Saved Results</h2>
+  <p class="text-muted mb-4">CSV files from previous scans, stored in <code>results/</code>.</p>
+
+  {% if files %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>File</th>
+          <th>Modified</th>
+          <th class="text-end">Size</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in files %}
+        <tr>
+          <td class="font-monospace small">{{ f.name }}</td>
+          <td class="text-secondary small">{{ f.modified }}</td>
+          <td class="text-end text-secondary small">{{ f.size_kb }} KB</td>
+          <td class="text-end">
+            <a href="/download_result/{{ f.name }}" class="btn btn-sm btn-outline-success">
+              Download
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">No saved result files yet. Run a scan to generate one.</div>
+  {% endif %}
+
+  <a href="/" class="btn btn-outline-secondary mt-2">← Back to upload</a>
+</div>
+{% endblock %}
