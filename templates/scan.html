@@ -35,6 +35,10 @@
     <div class="alert alert-success fw-semibold mb-3">
       ✓ Scan complete!
     </div>
+    <div id="csv-error-section" class="alert alert-warning d-none mb-3">
+      <strong>Warning:</strong> <span id="csv-error-msg"></span><br>
+      <small class="text-muted">The JSON download still works; only the CSV couldn't be saved.</small>
+    </div>
     <a id="download-btn" href="/download/{{ job_id }}" class="btn btn-primary btn-lg w-100">
       Download results.json
     </a>
@@ -113,6 +117,10 @@
             const csvBtn = document.getElementById("download-csv-btn");
             csvBtn.href = "/download_csv/" + JOB_ID;
             csvBtn.classList.remove("d-none");
+          }
+          if (d.csv_save_error) {
+            document.getElementById("csv-error-msg").textContent = d.csv_save_error;
+            document.getElementById("csv-error-section").classList.remove("d-none");
           }
 
         } else if (d.status === "error") {

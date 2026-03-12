@@ -60,24 +60,27 @@ def save_results_csv(job_id: str, results: list) -> str:
     filename = f"scan_{ts}_{job_id[:8]}.csv"
     path = os.path.join(RESULTS_DIR, filename)
 
-    # Build fieldnames: core fields first, then any extra keys from the data
+    # Build fieldnames: core fields first, then any extra scalar keys.
+    # Skip 'raw_data' and any other nested dict/list fields — they don't belong in CSV.
+    _SKIP_FIELDS = {"raw_data"}
     extra_keys = []
     for row in results:
-        for k in row:
-            if k not in _CORE_FIELDS and k not in extra_keys:
-                extra_keys.append(k)
+        for k, v in row.items():
+            if k not in _CORE_FIELDS and k not in extra_keys and k not in _SKIP_FIELDS:
+                if not isinstance(v, (dict, list)):
+                    extra_keys.append(k)
     fieldnames = _CORE_FIELDS + extra_keys
 
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore", restval="")
         writer.writeheader()
         for row in results:
-            flat = {**row}
+            flat = {k: v for k, v in row.items() if not isinstance(v, (dict, list)) or k == "detected_tags"}
             if isinstance(flat.get("detected_tags"), list):
                 flat["detected_tags"] = ", ".join(flat["detected_tags"])
             writer.writerow(flat)
 
-    print(f"[scan] saved CSV → {path}")
+    print(f"[scan] saved CSV → {path}  ({len(results)} rows)")
     return filename
 
 
@@ -226,14 +229,17 @@ def run_scan(job_id: str, rows: list, skip_existing: bool = False):
                     job["lh_done"] += 1
 
         csv_filename = None
+        csv_save_error = None
         try:
             csv_filename = save_results_csv(job_id, results)
         except Exception as csv_err:
+            csv_save_error = str(csv_err)
             print(f"[scan] CSV save failed: {csv_err}")
 
         with jobs_lock:
             job["results"] = results
             job["csv_file"] = csv_filename
+            job["csv_save_error"] = csv_save_error
             job["status"] = "done"
         print(f"[scan] finished — {len(results)} results")
 
@@ -386,6 +392,7 @@ def start_scan(upload_id):
             "results": None,
             "error": None,
             "csv_file": None,
+            "csv_save_error": None,
         }
 
     t = threading.Thread(target=run_scan, args=(job_id, rows, skip_existing), daemon=True)
@@ -415,6 +422,7 @@ def api_progress(job_id):
         "lh_total": job["lh_total"],
         "error": job["error"],
         "csv_file": job.get("csv_file"),
+        "csv_save_error": job.get("csv_save_error"),
     })
 
 
@@ -458,6 +466,7 @@ def download_csv(job_id):
 @login_required
 def results_list():
     files = []
+    dir_error = None
     try:
         for fname in sorted(os.listdir(RESULTS_DIR), reverse=True):
             if fname.endswith(".csv"):
@@ -467,8 +476,9 @@ def results_list():
                 files.append({"name": fname, "size_kb": round(size_kb, 1),
                                "modified": mtime.strftime("%Y-%m-%d %H:%M:%S")})
     except Exception as e:
-        pass
-    return render_template("results.html", files=files)
+        dir_error = str(e)
+        print(f"[results] Error listing {RESULTS_DIR}: {e}")
+    return render_template("results.html", files=files, results_dir=RESULTS_DIR, dir_error=dir_error)
 
 
 @app.route("/config", methods=["GET", "POST"])
