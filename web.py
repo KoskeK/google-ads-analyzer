@@ -407,4 +407,4 @@ def config_page():
 
 if __name__ == "__main__":
     print("Starting Flask server on http://127.0.0.1:5000 ...")
-    app.run(port=5000, debug=True, use_reloader=False)
+    app.run(port=5000, debug=True, use_reloader=False,host='0.0.0.0')
