@@ -74,7 +74,10 @@ def fetch_lighthouse_report(url, strategy="mobile", key=GOOGLE_API_KEY):
             data = response.json()
             
             categories = data['lighthouseResult']['categories']
-            scores = {name: cat['score'] * 100 for name, cat in categories.items() if cat.get('score') is not None}
+            scores = {
+                name: (cat['score'] * 100 if cat.get('score') is not None else None)
+                for name, cat in categories.items()
+            }
             lcp_audit = data['lighthouseResult']['audits'].get('largest-contentful-paint', {})
             lcp_value = lcp_audit.get('numericValue')
             if lcp_value is not None:
@@ -115,7 +118,7 @@ def rateAndSave(url, collection, email, name):
         lighthouse_data, scores = fetch_lighthouse_report(url)
         if scores is not None:
             for score_name in scores:
-                if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+                if scores[score_name] is not None and scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
                     for s in scores:
                         data[s] = scores[s]
                     data["raw_data"] = lighthouse_data
@@ -128,7 +131,7 @@ def _lighthouse_task(base_data, url):
     lighthouse_data, scores = fetch_lighthouse_report(url)
     if scores is not None:
         for score_name in scores:
-            if scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
+            if scores[score_name] is not None and scores[score_name] > config.get(f'max_{score_name}', scores[score_name]):
                 for s in scores:
                     base_data[s] = scores[s]
                 base_data["raw_data"] = lighthouse_data
