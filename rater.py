@@ -1,3 +1,4 @@
+from pydoc import html
 import time
 import httpx
 import warnings
@@ -36,12 +37,11 @@ def detect_pixel(url):
             # Use .lower() so we don't worry about casing
             html = response.text.lower()
 
-            # 1. Check for Google Ads Footprints
-            google_triggers = ['gtag', 'googleadservices', 'aw-', 'ads-wrapper', 'gclid']
-            if any(x in html for x in google_triggers):
-                return True
-            else:
-                return False
+        google_triggers = ['gtag', 'googleadservices', 'aw-', 'ads-wrapper', 'gclid']
+        if any(x in html for x in google_triggers):
+            return True
+        else:
+            return False
 
     except Exception:
         log_error(f"detect_pixel failed for {url}")
@@ -145,38 +145,4 @@ def rate(url, email, name):
     return data
 
 if __name__ == "__main__":
-    sbsData = loadSBS("sample.csv")
-    results = []
-    pbar = tqdm.tqdm(total=len(sbsData))
-
-    # Pool for lighthouse scans — runs concurrently while main thread keeps scanning for ads
-    with concurrent.futures.ThreadPoolExecutor() as lighthouse_pool:
-        pending_futures = {}
-
-        for row in sbsData:
-            try:
-                data = rate(row['url'], row['email'], row['name'])
-                if data['has_ads']:
-                    # Hand off to a worker thread immediately and keep going
-                    future = lighthouse_pool.submit(_lighthouse_task, data, row['url'])
-                    pending_futures[future] = data
-                else:
-                    results.append(data)
-            except Exception as e:
-                log_error(f"Failed to process {row['url']}: {e}")
-            pbar.update(1)
-
-        pbar.close()
-
-        # Collect lighthouse results as they finish
-        print(f"\nWaiting for {len(pending_futures)} lighthouse scans to complete...")
-        for future in concurrent.futures.as_completed(pending_futures):
-            try:
-                results.append(future.result())
-            except Exception as e:
-                original_data = pending_futures[future]
-                log_error(f"Lighthouse task failed for {original_data['url']}: {e}")
-                results.append(original_data)
-
-    with open("results.json", "w") as f:
-        json.dump(results, f, indent=4)
+    print(detect_pixel("https://www.blacklane.com/en/"))
