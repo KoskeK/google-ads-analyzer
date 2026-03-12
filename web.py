@@ -462,6 +462,65 @@ def download_csv(job_id):
                      download_name=job["csv_file"])
 
 
+@app.route("/export/<fmt>")
+@login_required
+def export_db(fmt):
+    if fmt not in ("json", "csv"):
+        return redirect(url_for("results_list"))
+
+    collection = None
+    try:
+        collection = _get_mongo_collection()
+    except Exception as e:
+        pass
+
+    if collection is None:
+        return render_template("results.html", files=[], results_dir=RESULTS_DIR,
+                               dir_error=None,
+                               export_error="MongoDB is not configured. Set mongo_url in Settings."), 400
+
+    try:
+        docs = list(collection.find({}, {"_id": 0}))
+    except Exception as e:
+        return render_template("results.html", files=[], results_dir=RESULTS_DIR,
+                               dir_error=None,
+                               export_error=f"MongoDB query failed: {e}"), 500
+
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if fmt == "json":
+        buf = io.BytesIO(json.dumps(docs, indent=2, default=str).encode("utf-8"))
+        buf.seek(0)
+        return send_file(buf, mimetype="application/json", as_attachment=True,
+                         download_name=f"db_export_{ts}.json")
+
+    # CSV export
+    # Flatten: detected_tags list → comma string; drop nested dicts (raw_data etc)
+    _SKIP = {"raw_data"}
+    fieldnames = list(_CORE_FIELDS)  # start with canonical order
+    extra_seen = []
+    for doc in docs:
+        for k, v in doc.items():
+            if k not in _CORE_FIELDS and k not in extra_seen and k not in _SKIP:
+                if not isinstance(v, (dict, list)):
+                    extra_seen.append(k)
+    fieldnames += extra_seen
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore", restval="")
+    writer.writeheader()
+    for doc in docs:
+        flat = {k: v for k, v in doc.items() if not isinstance(v, (dict, list)) or k == "detected_tags"}
+        if isinstance(flat.get("detected_tags"), list):
+            flat["detected_tags"] = ", ".join(flat["detected_tags"])
+        writer.writerow(flat)
+
+    out = io.BytesIO(buf.getvalue().encode("utf-8"))
+    out.seek(0)
+    return send_file(out, mimetype="text/csv", as_attachment=True,
+                     download_name=f"db_export_{ts}.csv")
+
+
 @app.route("/results")
 @login_required
 def results_list():
