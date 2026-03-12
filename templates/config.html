@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-4 p-md-5" style="max-width: 720px;">
+  <h2 class="mb-1 fw-bold">Settings</h2>
+  <p class="text-muted mb-4">Changes are written to <code>config.json</code> and take effect immediately.</p>
+
+  {% if saved %}
+  <div class="alert alert-success">Settings saved.</div>
+  {% endif %}
+  {% if error %}
+  <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+
+  <form method="POST" action="/config">
+
+    <!-- ── MongoDB ───────────────────────────────────────── -->
+    <h5 class="fw-semibold mb-3 border-bottom pb-2">MongoDB</h5>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Connection URL</label>
+      <input class="form-control font-monospace" type="text" name="mongo_url"
+             value="{{ config.mongo_url }}"
+             placeholder="mongodb://localhost:27017" />
+      <div class="form-text">Leave blank to disable MongoDB storage.</div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col">
+        <label class="form-label fw-semibold">Database</label>
+        <input class="form-control" type="text" name="mongo_db"
+               value="{{ config.mongo_db }}" placeholder="ads_analyzer" required />
+      </div>
+      <div class="col">
+        <label class="form-label fw-semibold">Collection</label>
+        <input class="form-control" type="text" name="mongo_collection"
+               value="{{ config.mongo_collection }}" placeholder="results" required />
+      </div>
+    </div>
+
+    <!-- ── Score thresholds ──────────────────────────────── -->
+    <h5 class="fw-semibold mb-3 border-bottom pb-2">Lighthouse Score Thresholds</h5>
+    <p class="text-muted small mb-3">
+      A site is included in results only if <em>any</em> score exceeds its threshold.
+      Set a threshold to 100 to effectively disable that filter.
+    </p>
+
+    <div class="row g-3 mb-3">
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold">Performance</label>
+        <input class="form-control" type="number" min="0" max="100" name="max_performance"
+               value="{{ config.max_performance }}" required />
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold">Accessibility</label>
+        <input class="form-control" type="number" min="0" max="100" name="max_accessibility"
+               value="{{ config.max_accessibility }}" required />
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold">Best Practices</label>
+        <input class="form-control" type="number" min="0" max="100" name="max_best-practices"
+               value="{{ config['max_best-practices'] }}" required />
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold">SEO</label>
+        <input class="form-control" type="number" min="0" max="100" name="max_seo"
+               value="{{ config.max_seo }}" required />
+      </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-6">
+        <label class="form-label fw-semibold">Max LCP <span class="text-muted fw-normal">(seconds)</span></label>
+        <input class="form-control" type="number" step="0.1" min="0" name="max_lcp"
+               value="{{ config.max_lcp }}" required />
+      </div>
+      <div class="col-6">
+        <label class="form-label fw-semibold">Lighthouse Delay <span class="text-muted fw-normal">(seconds)</span></label>
+        <input class="form-control" type="number" step="0.1" min="0" name="lighthouse_delay"
+               value="{{ config.lighthouse_delay }}" required />
+        <div class="form-text">Pause between Lighthouse requests.</div>
+      </div>
+    </div>
+
+    <!-- ── Logging ───────────────────────────────────────── -->
+    <h5 class="fw-semibold mb-3 border-bottom pb-2">Logging</h5>
+
+    <div class="mb-4">
+      <label class="form-label fw-semibold">Log File Path</label>
+      <input class="form-control font-monospace" type="text" name="log_file"
+             value="{{ config.log_file }}" placeholder="errors.log" required />
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg w-100">Save Settings</button>
+  </form>
+</div>
+{% endblock %}

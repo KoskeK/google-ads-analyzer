@@ -6,5 +6,9 @@
     "max_lcp":2.5,
     "lighthouse_delay": 0.1,
     "log_file": "errors.log",
-    "mongo_url":""
+    "mongo_url":"",
+    "mongo_db":"ads_analyzer",
+    "mongo_collection":"results",
+    "username":"admin",
+    "password":"changeme"
 }

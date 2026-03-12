@@ -70,6 +70,17 @@
       </select>
     </div>
 
+    <div class="mb-4 form-check">
+      <input class="form-check-input" type="checkbox" name="skip_existing" value="1" id="skip_existing" checked />
+      <label class="form-check-label fw-semibold" for="skip_existing">
+        Skip URLs already in the database
+      </label>
+      <div class="form-text">
+        If a MongoDB connection is configured, any URL that already has a record will be skipped.
+        Uncheck to re-scan and overwrite.
+      </div>
+    </div>
+
     <button type="submit" class="btn btn-success btn-lg w-100">
       Start Scan →
     </button>

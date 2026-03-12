@@ -5,12 +5,34 @@ import json
 import threading
 import concurrent.futures
 import io
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file, session
+from functools import wraps
 
 # Ensure we run from the project root so rater.py can open config.json / google_key
 _base_path = os.path.dirname(os.path.abspath(__file__))
 if _base_path:
     os.chdir(_base_path)
+
+# Load config for MongoDB connection details
+with open("config.json", "r") as _f:
+    _config = json.load(_f)
+
+
+def _get_mongo_collection():
+    """Return a pymongo Collection if mongo_url is configured, else None."""
+    mongo_url = _config.get("mongo_url", "").strip()
+    if not mongo_url:
+        return None
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
+        db_name  = _config.get("mongo_db", "ads_analyzer")
+        col_name = _config.get("mongo_collection", "results")
+        return client[db_name][col_name]
+    except Exception as e:
+        print(f"[mongo] Connection failed: {e}")
+        return None
+
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "ads-analyzer-secret-key")
@@ -63,12 +85,27 @@ def _watchdog(job_id: str, stop_event: threading.Event):
         )
 
 
-def run_scan(job_id: str, rows: list):
+def run_scan(job_id: str, rows: list, skip_existing: bool = False):
     """Background thread: scan ad pixels then run Lighthouse concurrently."""
     import rater  # lazy import — avoids blocking Flask startup
     job = jobs[job_id]
     job["status"] = "scanning"
     results = []
+
+    collection = _get_mongo_collection()
+    if collection is not None:
+        print(f"[mongo] Connected — saving to {_config.get('mongo_db')}.{_config.get('mongo_collection')}")
+    else:
+        print("[mongo] No mongo_url set — results will only be held in memory")
+
+    # Build set of already-scanned URLs so we can skip them
+    already_scanned = set()
+    if skip_existing and collection is not None:
+        try:
+            already_scanned = {doc["url"] for doc in collection.find({}, {"url": 1, "_id": 0})}
+            print(f"[mongo] skip_existing=True — {len(already_scanned)} URLs already in DB")
+        except Exception as e:
+            print(f"[mongo] Could not fetch existing URLs: {e}")
 
     stop_event = threading.Event()
     watchdog = threading.Thread(target=_watchdog, args=(job_id, stop_event), daemon=True)
@@ -82,6 +119,13 @@ def run_scan(job_id: str, rows: list):
                 url = row["url"]
                 with jobs_lock:
                     job["current_url"] = url
+
+                if url in already_scanned:
+                    print(f"[scan] skipping (already in DB)  {url}")
+                    with jobs_lock:
+                        job["progress"] += 1
+                    continue
+
                 print(f"[scan] pixel-check  {url}")
                 try:
                     data = rater.rate(url, row["email"], row["name"])
@@ -92,6 +136,11 @@ def run_scan(job_id: str, rows: list):
                     else:
                         print(f"[scan] has_ads=False  {url}")
                         results.append(data)
+                        if collection is not None:
+                            try:
+                                collection.insert_one({**data})
+                            except Exception as me:
+                                rater.log_error(f"MongoDB insert failed for {url}: {me}")
                 except Exception as e:
                     rater.log_error(f"Pixel scan failed for {url}: {e}")
 
@@ -110,10 +159,21 @@ def run_scan(job_id: str, rows: list):
                 orig = pending[future]
                 print(f"[scan] lighthouse done  {orig['url']}")
                 try:
-                    results.append(future.result())
+                    r = future.result()
+                    results.append(r)
+                    if collection is not None:
+                        try:
+                            collection.insert_one({**r})
+                        except Exception as me:
+                            rater.log_error(f"MongoDB insert failed for {orig['url']}: {me}")
                 except Exception as e:
                     rater.log_error(f"Lighthouse failed for {orig['url']}: {e}")
                     results.append(orig)
+                    if collection is not None:
+                        try:
+                            collection.insert_one({**orig})
+                        except Exception as me:
+                            rater.log_error(f"MongoDB insert failed for {orig['url']}: {me}")
 
                 with jobs_lock:
                     job["lh_done"] += 1
@@ -133,14 +193,47 @@ def run_scan(job_id: str, rows: list):
         stop_event.set()
 
 
+# ── Auth ─────────────────────────────────────────────────────────────────────
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if username == _config.get("username") and password == _config.get("password"):
+            session["logged_in"] = True
+            next_page = request.args.get("next") or url_for("index")
+            return redirect(next_page)
+        error = "Invalid username or password."
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/upload", methods=["POST"])
+@login_required
 def upload():
     f = request.files.get("csv_file")
     if not f or not f.filename.lower().endswith(".csv"):
@@ -163,6 +256,7 @@ def upload():
 
 
 @app.route("/map/<upload_id>")
+@login_required
 def map_columns(upload_id):
     upload = uploads.get(upload_id)
     if not upload:
@@ -179,6 +273,7 @@ def map_columns(upload_id):
 
 
 @app.route("/scan/<upload_id>", methods=["POST"])
+@login_required
 def start_scan(upload_id):
     upload = uploads.get(upload_id)
     if not upload:
@@ -188,6 +283,7 @@ def start_scan(upload_id):
     url_fallback_col = request.form.get("url_fallback_col", "").strip()
     name_col = request.form.get("name_col", "").strip()
     email_col = request.form.get("email_col", "").strip()
+    skip_existing = request.form.get("skip_existing") == "1"
 
     if not url_col:
         return render_template(
@@ -235,13 +331,14 @@ def start_scan(upload_id):
             "error": None,
         }
 
-    t = threading.Thread(target=run_scan, args=(job_id, rows), daemon=True)
+    t = threading.Thread(target=run_scan, args=(job_id, rows, skip_existing), daemon=True)
     t.start()
 
     return redirect(url_for("scan_progress", job_id=job_id))
 
 
 @app.route("/progress/<job_id>")
+@login_required
 def scan_progress(job_id):
     if job_id not in jobs:
         return redirect(url_for("index"))
@@ -264,6 +361,7 @@ def api_progress(job_id):
 
 
 @app.route("/download/<job_id>")
+@login_required
 def download(job_id):
     job = jobs.get(job_id)
     if not job or job["status"] != "done":
@@ -272,6 +370,39 @@ def download(job_id):
     buf = io.BytesIO(json.dumps(job["results"], indent=2).encode("utf-8"))
     buf.seek(0)
     return send_file(buf, mimetype="application/json", as_attachment=True, download_name="results.json")
+
+
+@app.route("/config", methods=["GET", "POST"])
+@login_required
+def config_page():
+    global _config
+    saved = False
+    error = None
+
+    if request.method == "POST":
+        try:
+            new_config = {
+                "max_performance":   int(request.form["max_performance"]),
+                "max_accessibility": int(request.form["max_accessibility"]),
+                "max_best-practices": int(request.form["max_best-practices"]),
+                "max_seo":           int(request.form["max_seo"]),
+                "max_lcp":           float(request.form["max_lcp"]),
+                "lighthouse_delay":  float(request.form["lighthouse_delay"]),
+                "log_file":          request.form["log_file"].strip() or "errors.log",
+                "mongo_url":         request.form["mongo_url"].strip(),
+                "mongo_db":          request.form["mongo_db"].strip() or "ads_analyzer",
+                "mongo_collection":  request.form["mongo_collection"].strip() or "results",
+                "username":          request.form["username"].strip() or _config.get("username", "admin"),
+                "password":          request.form["password"] or _config.get("password", "changeme"),
+            }
+            with open("config.json", "w") as f:
+                json.dump(new_config, f, indent=4)
+            _config = new_config
+            saved = True
+        except (ValueError, KeyError) as e:
+            error = f"Invalid value: {e}"
+
+    return render_template("config.html", config=_config, saved=saved, error=error)
 
 
 if __name__ == "__main__":
