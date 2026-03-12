@@ -32,6 +32,14 @@
         </svg>
         Results
       </a>
+      <a class="nav-link text-white opacity-75" href="/stats">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+             class="bi bi-pie-chart me-1 mb-1" viewBox="0 0 16 16">
+          <path d="M7.5 1.018A7 7 0 1 0 14.982 8H8a.5.5 0 0 1-.5-.5V1.018z"/>
+          <path d="M8.5.018A7 7 0 0 1 15.982 7H8.5V.018z"/>
+        </svg>
+        Stats
+      </a>
       <a class="nav-link text-white opacity-75" href="/config">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
              class="bi bi-gear me-1 mb-1" viewBox="0 0 16 16">
@@ -51,7 +59,7 @@
     </div>
   </nav>
 
-  <div class="container" style="max-width: 680px;">
+  <div class="container {% block container_class %}{% endblock %}" style="max-width: {% block container_max_width %}680px{% endblock %};">
     {% block content %}{% endblock %}
   </div>
 

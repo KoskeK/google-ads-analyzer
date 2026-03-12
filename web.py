@@ -53,6 +53,49 @@ jobs_lock = threading.Lock()
 _CORE_FIELDS = ["url", "timestamp", "email", "name", "has_ads", "detected_tags",
                 "performance", "accessibility", "best-practices", "seo", "lcp"]
 
+_SCORE_FIELDS = ["performance", "accessibility", "best-practices", "seo", "lcp"]
+
+
+def _to_float(value):
+    """Best-effort conversion to float; returns None when conversion is not possible."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        # Accept values like "88%" as 88.0
+        if s.endswith("%"):
+            s = s[:-1].strip()
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _to_bool(value):
+    """Best-effort conversion to bool for has_ads values stored as mixed types."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in {"1", "true", "yes", "y", "on"}:
+            return True
+        if s in {"0", "false", "no", "n", "off", ""}:
+            return False
+    return False
+
+
+def _avg(values):
+    return round(sum(values) / len(values), 2) if values else None
+
 
 def save_results_csv(job_id: str, results: list) -> str:
     """Write results to RESULTS_DIR/<timestamp>_<job_id_short>.csv and return the filename."""
@@ -497,16 +540,23 @@ def export_db(fmt):
 
     if fmt == "json":
         def _gen_json():
+            cursor = collection.find({}, {"_id": 0}, no_cursor_timeout=True).batch_size(1000)
             yield '[\n'
             first = True
+            emitted = 0
             try:
-                for doc in collection.find({}, {"_id": 0}):
+                for doc in cursor:
                     if not first:
                         yield ',\n'
                     yield json.dumps(doc, default=str)
                     first = False
+                    emitted += 1
             except Exception as e:
-                print(f"[export] MongoDB cursor error: {e}")
+                print(f"[export] json cursor error after {emitted} docs: {e}")
+                raise
+            finally:
+                cursor.close()
+            print(f"[export] json complete — emitted {emitted} docs")
             yield '\n]\n'
 
         return Response(
@@ -521,8 +571,9 @@ def export_db(fmt):
     _SKIP = {"raw_data"}
     fieldnames = list(_CORE_FIELDS)
     extra_seen = []
+    schema_cursor = collection.find({}, {"_id": 0}, no_cursor_timeout=True).batch_size(1000)
     try:
-        for doc in collection.find({}, {"_id": 0}):
+        for doc in schema_cursor:
             for k, v in doc.items():
                 if k not in _CORE_FIELDS and k not in extra_seen and k not in _SKIP:
                     if not isinstance(v, (dict, list)):
@@ -531,15 +582,19 @@ def export_db(fmt):
         return render_template("results.html", files=[], results_dir=RESULTS_DIR,
                                dir_error=None,
                                export_error=f"MongoDB query failed: {e}"), 500
+    finally:
+        schema_cursor.close()
     fieldnames += extra_seen
 
     def _gen_csv():
+        cursor = collection.find({}, {"_id": 0}, no_cursor_timeout=True).batch_size(1000)
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore", restval="")
         writer.writeheader()
         yield buf.getvalue()
+        emitted = 0
         try:
-            for doc in collection.find({}, {"_id": 0}):
+            for doc in cursor:
                 flat = {k: v for k, v in doc.items()
                         if k not in _SKIP and (not isinstance(v, (dict, list)) or k == "detected_tags")}
                 if isinstance(flat.get("detected_tags"), list):
@@ -548,8 +603,13 @@ def export_db(fmt):
                 buf.truncate()
                 writer.writerow(flat)
                 yield buf.getvalue()
+                emitted += 1
         except Exception as e:
-            print(f"[export] MongoDB cursor error: {e}")
+            print(f"[export] csv cursor error after {emitted} docs: {e}")
+            raise
+        finally:
+            cursor.close()
+        print(f"[export] csv complete — emitted {emitted} docs")
 
     return Response(
         stream_with_context(_gen_csv()),
@@ -575,6 +635,61 @@ def results_list():
         dir_error = str(e)
         print(f"[results] Error listing {RESULTS_DIR}: {e}")
     return render_template("results.html", files=files, results_dir=RESULTS_DIR, dir_error=dir_error)
+
+
+@app.route("/stats")
+@login_required
+def stats_page():
+    collection = None
+    try:
+        collection = _get_mongo_collection()
+    except Exception:
+        collection = None
+
+    if collection is None:
+        return render_template(
+            "stats.html",
+            stats=None,
+            stats_error="MongoDB is not configured. Set mongo_url in Settings.",
+        ), 400
+
+    counts = {"total": 0, "with_ads": 0, "without_ads": 0}
+    scores_all = {k: [] for k in _SCORE_FIELDS}
+    scores_ads = {k: [] for k in _SCORE_FIELDS}
+    scores_no_ads = {k: [] for k in _SCORE_FIELDS}
+
+    try:
+        for doc in collection.find({}, {"_id": 0, **{k: 1 for k in _SCORE_FIELDS}, "has_ads": 1, "url": 1}):
+            counts["total"] += 1
+            has_ads = _to_bool(doc.get("has_ads"))
+            if has_ads:
+                counts["with_ads"] += 1
+            else:
+                counts["without_ads"] += 1
+
+            for field in _SCORE_FIELDS:
+                num = _to_float(doc.get(field))
+                if num is None:
+                    continue
+                scores_all[field].append(num)
+                if has_ads:
+                    scores_ads[field].append(num)
+                else:
+                    scores_no_ads[field].append(num)
+    except Exception as e:
+        return render_template(
+            "stats.html",
+            stats=None,
+            stats_error=f"MongoDB query failed: {e}",
+        ), 500
+
+    stats = {
+        "counts": counts,
+        "avg_all": {k: _avg(v) for k, v in scores_all.items()},
+        "avg_ads": {k: _avg(v) for k, v in scores_ads.items()},
+        "avg_no_ads": {k: _avg(v) for k, v in scores_no_ads.items()},
+    }
+    return render_template("stats.html", stats=stats, stats_error=None)
 
 
 @app.route("/config", methods=["GET", "POST"])
