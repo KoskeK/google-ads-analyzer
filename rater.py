@@ -38,14 +38,12 @@ def detect_pixel(url):
             html = response.text.lower()
 
         google_triggers = ['gtag', 'googleadservices', 'aw-', 'ads-wrapper', 'gclid']
-        if any(x in html for x in google_triggers):
-            return True
-        else:
-            return False
+        matched = [trigger for trigger in google_triggers if trigger in html]
+        return matched
 
     except Exception:
         log_error(f"detect_pixel failed for {url}")
-        return False
+        return []
 
 with open("google_key", "r") as f:
     GOOGLE_API_KEY = f.read().strip()
@@ -111,10 +109,11 @@ def loadSBS(file_path):
 
 def rateAndSave(url, collection, email, name):
     data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
-    has_ads = detect_pixel(url)
-    data['has_ads'] = has_ads
+    matched_tags = detect_pixel(url)
+    data['has_ads'] = bool(matched_tags)
+    data['detected_tags'] = matched_tags
 
-    if has_ads:
+    if matched_tags:
         lighthouse_data, scores = fetch_lighthouse_report(url)
         if scores is not None:
             for score_name in scores:
@@ -140,8 +139,9 @@ def _lighthouse_task(base_data, url):
 
 def rate(url, email, name):
     data = {"url": url, "timestamp": datetime.today().isoformat(), "email": email, "name": name}
-    has_ads = detect_pixel(url)
-    data['has_ads'] = has_ads
+    matched_tags = detect_pixel(url)
+    data['has_ads'] = bool(matched_tags)
+    data['detected_tags'] = matched_tags
     return data
 
 if __name__ == "__main__":
