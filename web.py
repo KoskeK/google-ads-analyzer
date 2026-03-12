@@ -6,7 +6,7 @@ import threading
 import concurrent.futures
 import io
 import datetime
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file, session, Response, stream_with_context
 from functools import wraps
 
 # Ensure we run from the project root so rater.py can open config.json / google_key
@@ -433,9 +433,23 @@ def download(job_id):
     if not job or job["status"] != "done":
         return redirect(url_for("index"))
 
-    buf = io.BytesIO(json.dumps(job["results"], indent=2).encode("utf-8"))
-    buf.seek(0)
-    return send_file(buf, mimetype="application/json", as_attachment=True, download_name="results.json")
+    results = job["results"]
+
+    def _generate():
+        yield '[\n'
+        first = True
+        for item in results:
+            if not first:
+                yield ',\n'
+            yield json.dumps(item, default=str)
+            first = False
+        yield '\n]\n'
+
+    return Response(
+        stream_with_context(_generate()),
+        mimetype="application/json",
+        headers={"Content-Disposition": 'attachment; filename="results.json"'},
+    )
 
 
 @app.route("/download_result/<path:filename>")
@@ -479,46 +493,69 @@ def export_db(fmt):
                                dir_error=None,
                                export_error="MongoDB is not configured. Set mongo_url in Settings."), 400
 
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if fmt == "json":
+        def _gen_json():
+            yield '[\n'
+            first = True
+            try:
+                for doc in collection.find({}, {"_id": 0}):
+                    if not first:
+                        yield ',\n'
+                    yield json.dumps(doc, default=str)
+                    first = False
+            except Exception as e:
+                print(f"[export] MongoDB cursor error: {e}")
+            yield '\n]\n'
+
+        return Response(
+            stream_with_context(_gen_json()),
+            mimetype="application/json",
+            headers={"Content-Disposition": f'attachment; filename="db_export_{ts}.json"'},
+        )
+
+    # CSV export — two lightweight passes:
+    #   pass 1: collect unique field names only (no values kept in memory)
+    #   pass 2: stream rows one at a time
+    _SKIP = {"raw_data"}
+    fieldnames = list(_CORE_FIELDS)
+    extra_seen = []
     try:
-        docs = list(collection.find({}, {"_id": 0}))
+        for doc in collection.find({}, {"_id": 0}):
+            for k, v in doc.items():
+                if k not in _CORE_FIELDS and k not in extra_seen and k not in _SKIP:
+                    if not isinstance(v, (dict, list)):
+                        extra_seen.append(k)
     except Exception as e:
         return render_template("results.html", files=[], results_dir=RESULTS_DIR,
                                dir_error=None,
                                export_error=f"MongoDB query failed: {e}"), 500
-
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    if fmt == "json":
-        buf = io.BytesIO(json.dumps(docs, indent=2, default=str).encode("utf-8"))
-        buf.seek(0)
-        return send_file(buf, mimetype="application/json", as_attachment=True,
-                         download_name=f"db_export_{ts}.json")
-
-    # CSV export
-    # Flatten: detected_tags list → comma string; drop nested dicts (raw_data etc)
-    _SKIP = {"raw_data"}
-    fieldnames = list(_CORE_FIELDS)  # start with canonical order
-    extra_seen = []
-    for doc in docs:
-        for k, v in doc.items():
-            if k not in _CORE_FIELDS and k not in extra_seen and k not in _SKIP:
-                if not isinstance(v, (dict, list)):
-                    extra_seen.append(k)
     fieldnames += extra_seen
 
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore", restval="")
-    writer.writeheader()
-    for doc in docs:
-        flat = {k: v for k, v in doc.items() if not isinstance(v, (dict, list)) or k == "detected_tags"}
-        if isinstance(flat.get("detected_tags"), list):
-            flat["detected_tags"] = ", ".join(flat["detected_tags"])
-        writer.writerow(flat)
+    def _gen_csv():
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore", restval="")
+        writer.writeheader()
+        yield buf.getvalue()
+        try:
+            for doc in collection.find({}, {"_id": 0}):
+                flat = {k: v for k, v in doc.items()
+                        if k not in _SKIP and (not isinstance(v, (dict, list)) or k == "detected_tags")}
+                if isinstance(flat.get("detected_tags"), list):
+                    flat["detected_tags"] = ", ".join(flat["detected_tags"])
+                buf.seek(0)
+                buf.truncate()
+                writer.writerow(flat)
+                yield buf.getvalue()
+        except Exception as e:
+            print(f"[export] MongoDB cursor error: {e}")
 
-    out = io.BytesIO(buf.getvalue().encode("utf-8"))
-    out.seek(0)
-    return send_file(out, mimetype="text/csv", as_attachment=True,
-                     download_name=f"db_export_{ts}.csv")
+    return Response(
+        stream_with_context(_gen_csv()),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="db_export_{ts}.csv"'},
+    )
 
 
 @app.route("/results")
