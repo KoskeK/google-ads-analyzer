@@ -129,6 +129,7 @@ def run_scan(job_id: str, rows: list, skip_existing: bool = False):
                 print(f"[scan] pixel-check  {url}")
                 try:
                     data = rater.rate(url, row["email"], row["name"])
+                    data.update(row.get("extra", {}))  # merge extra CSV columns into result
                     if data["has_ads"]:
                         print(f"[scan] has_ads=True → queuing Lighthouse  {url}")
                         future = lh_pool.submit(rater._lighthouse_task, data, url)
@@ -284,6 +285,7 @@ def start_scan(upload_id):
     name_col = request.form.get("name_col", "").strip()
     email_col = request.form.get("email_col", "").strip()
     skip_existing = request.form.get("skip_existing") == "1"
+    extra_cols = request.form.getlist("extra_cols")
 
     if not url_col:
         return render_template(
@@ -308,6 +310,7 @@ def start_scan(upload_id):
                 "url": url,
                 "name": row.get(name_col, "").strip() if name_col else "",
                 "email": row.get(email_col, "").strip() if email_col else "",
+                "extra": {col: row.get(col, "") for col in extra_cols},
             })
 
     if not rows:
