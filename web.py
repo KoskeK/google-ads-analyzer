@@ -653,29 +653,18 @@ def stats_page():
             stats_error="MongoDB is not configured. Set mongo_url in Settings.",
         ), 400
 
-    counts = {"total": 0, "with_ads": 0, "without_ads": 0}
+    counts = {"total": 0}
     scores_all = {k: [] for k in _SCORE_FIELDS}
-    scores_ads = {k: [] for k in _SCORE_FIELDS}
-    scores_no_ads = {k: [] for k in _SCORE_FIELDS}
 
     try:
-        for doc in collection.find({}, {"_id": 0, **{k: 1 for k in _SCORE_FIELDS}, "has_ads": 1, "url": 1}):
+        for doc in collection.find({}, {"_id": 0, **{k: 1 for k in _SCORE_FIELDS}, "url": 1}):
             counts["total"] += 1
-            has_ads = _to_bool(doc.get("has_ads"))
-            if has_ads:
-                counts["with_ads"] += 1
-            else:
-                counts["without_ads"] += 1
 
             for field in _SCORE_FIELDS:
                 num = _to_float(doc.get(field))
                 if num is None:
                     continue
                 scores_all[field].append(num)
-                if has_ads:
-                    scores_ads[field].append(num)
-                else:
-                    scores_no_ads[field].append(num)
     except Exception as e:
         return render_template(
             "stats.html",
@@ -686,8 +675,6 @@ def stats_page():
     stats = {
         "counts": counts,
         "avg_all": {k: _avg(v) for k, v in scores_all.items()},
-        "avg_ads": {k: _avg(v) for k, v in scores_ads.items()},
-        "avg_no_ads": {k: _avg(v) for k, v in scores_no_ads.items()},
     }
     return render_template("stats.html", stats=stats, stats_error=None)
 

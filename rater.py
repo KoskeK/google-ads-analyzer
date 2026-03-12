@@ -36,7 +36,7 @@ def detect_pixel(url):
             # Use .lower() so we don't worry about casing
             html = response.text.lower()
 
-        google_triggers = ['gtag', 'googleadservices', 'aw-', 'ads-wrapper', 'gclid']
+        google_triggers = ['googleadservices', 'ads-wrapper']
         matched = [trigger for trigger in google_triggers if trigger in html]
         return matched
 

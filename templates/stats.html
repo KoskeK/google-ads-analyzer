@@ -5,7 +5,7 @@
 {% block content %}
 <div class="card p-4 p-md-5 mb-4">
   <h2 class="fw-bold mb-1">Database Statistics</h2>
-  <p class="text-muted mb-0">Overview of ad presence and Lighthouse score averages from MongoDB.</p>
+  <p class="text-muted mb-0">Overview of total sites and Lighthouse score averages from MongoDB.</p>
 </div>
 
 {% if stats_error %}
@@ -20,28 +20,17 @@
 </div>
 {% else %}
 <div class="row g-4">
-  <div class="col-12 col-lg-5">
+  <div class="col-12 col-lg-4">
     <div class="card p-4 h-100">
-      <h5 class="fw-bold mb-3">Ads vs No Ads</h5>
-      <div style="max-width: 360px; margin: 0 auto;">
-        <canvas id="adsPie"></canvas>
-      </div>
-      <div class="mt-4 d-flex justify-content-between align-items-center">
+      <h5 class="fw-bold mb-3">Total Websites</h5>
+      <div class="d-flex justify-content-between align-items-center">
         <span class="text-muted">Total websites</span>
         <span class="fw-bold fs-5">{{ stats.counts.total }}</span>
-      </div>
-      <div class="mt-2 d-flex justify-content-between align-items-center">
-        <span class="text-muted">With ads</span>
-        <span class="fw-semibold text-primary">{{ stats.counts.with_ads }}</span>
-      </div>
-      <div class="mt-1 d-flex justify-content-between align-items-center">
-        <span class="text-muted">Without ads</span>
-        <span class="fw-semibold text-success">{{ stats.counts.without_ads }}</span>
       </div>
     </div>
   </div>
 
-  <div class="col-12 col-lg-7">
+  <div class="col-12 col-lg-8">
     <div class="card p-4 h-100">
       <h5 class="fw-bold mb-3">Average Scores (All Sites)</h5>
       <div class="table-responsive">
@@ -78,114 +67,6 @@
       </div>
     </div>
   </div>
-
-  <div class="col-12 col-lg-6">
-    <div class="card p-4 h-100">
-      <h5 class="fw-bold mb-3">Average Scores (Sites With Ads)</h5>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>Category</th>
-              <th class="text-end">Average</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Performance</td>
-              <td class="text-end">{{ stats.avg_ads['performance'] if stats.avg_ads['performance'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>Accessibility</td>
-              <td class="text-end">{{ stats.avg_ads['accessibility'] if stats.avg_ads['accessibility'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>Best Practices</td>
-              <td class="text-end">{{ stats.avg_ads['best-practices'] if stats.avg_ads['best-practices'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>SEO</td>
-              <td class="text-end">{{ stats.avg_ads['seo'] if stats.avg_ads['seo'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>LCP</td>
-              <td class="text-end">{{ stats.avg_ads['lcp'] if stats.avg_ads['lcp'] is not none else 'N/A' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-12 col-lg-6">
-    <div class="card p-4 h-100">
-      <h5 class="fw-bold mb-3">Average Scores (Sites Without Ads)</h5>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>Category</th>
-              <th class="text-end">Average</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Performance</td>
-              <td class="text-end">{{ stats.avg_no_ads['performance'] if stats.avg_no_ads['performance'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>Accessibility</td>
-              <td class="text-end">{{ stats.avg_no_ads['accessibility'] if stats.avg_no_ads['accessibility'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>Best Practices</td>
-              <td class="text-end">{{ stats.avg_no_ads['best-practices'] if stats.avg_no_ads['best-practices'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>SEO</td>
-              <td class="text-end">{{ stats.avg_no_ads['seo'] if stats.avg_no_ads['seo'] is not none else 'N/A' }}</td>
-            </tr>
-            <tr>
-              <td>LCP</td>
-              <td class="text-end">{{ stats.avg_no_ads['lcp'] if stats.avg_no_ads['lcp'] is not none else 'N/A' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
 </div>
-{% endif %}
-{% endblock %}
-
-{% block scripts %}
-{% if stats and stats.counts.total > 0 %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script id="stats-counts" type="application/json">{{ stats.counts|tojson }}</script>
-<script>
-  const countsData = JSON.parse(document.getElementById('stats-counts').textContent);
-  const ctx = document.getElementById('adsPie');
-  if (ctx) {
-    new Chart(ctx, {
-      type: 'pie',
-      data: {
-        labels: ['With ads', 'Without ads'],
-        datasets: [{
-          data: [countsData.with_ads, countsData.without_ads],
-          backgroundColor: ['#1a73e8', '#188038'],
-          borderColor: '#ffffff',
-          borderWidth: 2
-        }]
-      },
-      options: {
-        plugins: {
-          legend: {
-            position: 'bottom'
-          }
-        }
-      }
-    });
-  }
-</script>
 {% endif %}
 {% endblock %}
