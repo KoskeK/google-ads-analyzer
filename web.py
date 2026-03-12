@@ -87,12 +87,24 @@ def _watchdog(job_id: str, stop_event: threading.Event):
 
 def run_scan(job_id: str, rows: list, skip_existing: bool = False):
     """Background thread: scan ad pixels then run Lighthouse concurrently."""
-    import rater  # lazy import — avoids blocking Flask startup
+    try:
+        import rater  # lazy import — avoids blocking Flask startup
+    except Exception as e:
+        with jobs_lock:
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["error"] = f"Failed to load scanner module: {e}"
+        print(f"[scan] IMPORT ERROR: {e}")
+        return
+
     job = jobs[job_id]
     job["status"] = "scanning"
     results = []
 
-    collection = _get_mongo_collection()
+    try:
+        collection = _get_mongo_collection()
+    except Exception as e:
+        print(f"[mongo] Error getting collection: {e}")
+        collection = None
     if collection is not None:
         print(f"[mongo] Connected — saving to {_config.get('mongo_db')}.{_config.get('mongo_collection')}")
     else:

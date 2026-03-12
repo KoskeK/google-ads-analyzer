@@ -1,4 +1,3 @@
-from pydoc import html
 import time
 import httpx
 import warnings
