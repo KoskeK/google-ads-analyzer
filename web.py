@@ -653,12 +653,16 @@ def stats_page():
             stats_error="MongoDB is not configured. Set mongo_url in Settings.",
         ), 400
 
-    counts = {"total": 0}
+    counts = {"total": 0, "with_ads": 0, "without_ads": 0}
     scores_all = {k: [] for k in _SCORE_FIELDS}
 
     try:
-        for doc in collection.find({}, {"_id": 0, **{k: 1 for k in _SCORE_FIELDS}, "url": 1}):
+        for doc in collection.find({}, {"_id": 0, **{k: 1 for k in _SCORE_FIELDS}, "has_ads": 1, "url": 1}):
             counts["total"] += 1
+            if _to_bool(doc.get("has_ads")):
+                counts["with_ads"] += 1
+            else:
+                counts["without_ads"] += 1
 
             for field in _SCORE_FIELDS:
                 num = _to_float(doc.get(field))
