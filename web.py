@@ -618,11 +618,32 @@ def export_db(fmt):
     )
 
 
+@app.route("/purge_db", methods=["POST"])
+@login_required
+def purge_db():
+    collection = None
+    try:
+        collection = _get_mongo_collection()
+    except Exception:
+        collection = None
+
+    if collection is None:
+        return redirect(url_for("results_list", action_error="MongoDB is not configured. Set mongo_url in Settings."))
+
+    try:
+        result = collection.delete_many({})
+        return redirect(url_for("results_list", action_msg=f"Purged {result.deleted_count} records from MongoDB."))
+    except Exception as e:
+        return redirect(url_for("results_list", action_error=f"Purge failed: {e}"))
+
+
 @app.route("/results")
 @login_required
 def results_list():
     files = []
     dir_error = None
+    action_msg = request.args.get("action_msg")
+    action_error = request.args.get("action_error")
     try:
         for fname in sorted(os.listdir(RESULTS_DIR), reverse=True):
             if fname.endswith(".csv"):
@@ -634,7 +655,14 @@ def results_list():
     except Exception as e:
         dir_error = str(e)
         print(f"[results] Error listing {RESULTS_DIR}: {e}")
-    return render_template("results.html", files=files, results_dir=RESULTS_DIR, dir_error=dir_error)
+    return render_template(
+        "results.html",
+        files=files,
+        results_dir=RESULTS_DIR,
+        dir_error=dir_error,
+        action_msg=action_msg,
+        action_error=action_error,
+    )
 
 
 @app.route("/stats")

@@ -6,6 +6,18 @@
   <h2 class="fw-bold mb-1">Export Database</h2>
   <p class="text-muted mb-3">Download every record stored in MongoDB as a single file.</p>
 
+  {% if action_msg %}
+  <div class="alert alert-success mb-3">
+    {{ action_msg }}
+  </div>
+  {% endif %}
+
+  {% if action_error %}
+  <div class="alert alert-danger mb-3">
+    <strong>Action error:</strong> {{ action_error }}
+  </div>
+  {% endif %}
+
   {% if export_error %}
   <div class="alert alert-danger mb-3">
     <strong>Export error:</strong> {{ export_error }}
@@ -27,6 +39,12 @@
       </svg>
       Export as CSV
     </a>
+    <form method="POST" action="/purge_db" class="ms-auto"
+          onsubmit="return confirm('This will permanently delete all records from MongoDB. Continue?');">
+      <button type="submit" class="btn btn-outline-danger">
+        Purge Entire DB
+      </button>
+    </form>
   </div>
 </div>
 
